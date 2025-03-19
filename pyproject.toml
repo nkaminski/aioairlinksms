@@ -1,0 +1,41 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "aioairlinksms"
+version = "0.1.0"
+description = "An asyncio Python library for sending and receiving SMS messages via Sierra Wireless Airlink modems."
+authors = [
+  "Nash Kaminski <nashkaminski@kaminski.io>",
+]
+readme = "README.md"
+license = "MIT"
+keywords = ["sms", "sierra", "airlink", "asyncio", "modem", "semtech"]
+homepage = "https://github.com/nkaminski/aioairlinksms"
+repository = "https://github.com/nkaminski/aioairlinksms"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Telephony",
+    "Topic :: System :: Networking",
+]
+packages = [{include = "aioairlinksms"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+asyncclick = "^8.2.2.2"
+
+[tool.poetry.scripts]
+airlinksms = "aioairlinksms.cli:main"
+
+[tool.ruff]
+line-length = 120
