@@ -1,9 +1,9 @@
 import logging
+from typing import Callable
 
 import asyncclick as click
 
-from aioairlinksms.udp import (AirlinkSMSMessage, AirlinkSMSUDPClientProtocol,
-                               create_message_handler)
+from aioairlinksms.udp import AirlinkSMSMessage, create_message_handler
 
 
 @click.command()
@@ -21,26 +21,26 @@ async def main(remote_addr, remote_port, local_bind_addr, local_bind_port, verbo
     else:
         logging.basicConfig(level=logging.INFO)
 
-    async def on_message_received(message: AirlinkSMSMessage, reply_client: AirlinkSMSUDPClientProtocol) -> bool:
+    def on_message_received(message: AirlinkSMSMessage, reply_client: Callable[[AirlinkSMSMessage], None]) -> bool:
         """
         Handles received messages, prints them, and replies with the character count.
         """
         logging.info("Received message: %s", message)
         reply_text = f"Received {len(message.message)} characters."
         reply_message = AirlinkSMSMessage(phone_number=message.phone_number, message=reply_text)
-        reply_client.send(reply_message)
+        reply_client(reply_message)
         return True
 
-    server_done = await create_message_handler(
+    async with create_message_handler(
         remote_addr=remote_addr,
         remote_port=remote_port,
         local_bind_addr=local_bind_addr,
         local_bind_port=local_bind_port or remote_port,
-        on_message_received=on_message_received,
-    )
+    ) as airlink:
+        logging.info("Started Airlink SMS listener context...")
+        async for message in airlink.messages:
+            on_message_received(message, airlink.send)
 
-    logging.info("Started Airlink SMS listener...")
-    await server_done
     logging.warning("Airlink SMS listener shut down.")
 
 

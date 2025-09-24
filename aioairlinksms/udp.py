@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Coroutine, List, Optional, Tuple
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, List, Optional, Tuple
 
 from .exceptions import (AirlinkConnectionClosedError,
                          AirlinkSMSMessageDecodeError,
@@ -145,7 +146,7 @@ class AirlinkSMSUDPClientProtocol(asyncio.DatagramProtocol):
 
         Raises AirlinkConnectionClosedError if the socket is closed or AirlinkSMSMessageEncodeError if the message is unable to be formatted.
         """
-        if self.transport is None:
+        if self.transport is None or self.transport.is_closing():
             raise AirlinkConnectionClosedError("Unable to send messages when the client socket has been closed")
         try:
             for msg in message.elaborate():
@@ -157,19 +158,10 @@ class AirlinkSMSUDPClientProtocol(asyncio.DatagramProtocol):
 
 
 class AirlinkSMSUDPServerProtocol(AirlinkSMSUDPClientProtocol):
-    def __init__(
-        self,
-        reply_client: AirlinkSMSUDPClientProtocol,
-        on_message_received: Optional[
-            Callable[[AirlinkSMSMessage, AirlinkSMSUDPClientProtocol], Coroutine[None, None, bool]]
-        ] = None,
-        on_connection_lost: Optional[asyncio.Future[bool]] = None,
-    ):
+    def __init__(self, max_queue_size: int = 1024, client: Optional[AirlinkSMSUDPClientProtocol] = None):
         super().__init__()
-        self.reply_client = reply_client
-        self.on_message_received = on_message_received
-        self.on_connection_lost = on_connection_lost
-        self._pending_replies: set[asyncio.Task] = set()
+        self.client = client
+        self._receive_queue = asyncio.Queue(maxsize=max_queue_size)
 
     def connection_made(self, transport: asyncio.DatagramTransport):
         self.transport = transport
@@ -179,29 +171,31 @@ class AirlinkSMSUDPServerProtocol(AirlinkSMSUDPClientProtocol):
     def datagram_received(self, data: bytes, addr: Tuple[str, int]):
         logger.debug("Received packet from %s with payload of %s", addr, data)
         message = AirlinkSMSMessage.deserialize(data)
-        if self.on_message_received is not None:
-            logger.debug("Calling on_message_received handler with %s", message)
-            reply_task = asyncio.create_task(self.on_message_received(message, self.reply_client))
-            self._pending_replies.add(reply_task)
-            reply_task.add_done_callback(self._pending_replies.discard)
+        self._receive_queue.put_nowait(message)
 
     def connection_lost(self, exc: Optional[Exception]):
         logger.info("Connection closed")
-        for reply_task in self._pending_replies:
-            reply_task.cancel()
-        self._pending_replies.clear()
-        if self.on_connection_lost is not None:
-            self.on_connection_lost.set_result(True)
+        self._receive_queue.shutdown()
         super().connection_lost(exc)
 
+    def send(self, message: AirlinkSMSMessage):
+        """Sends the supplied message using the associated client instance"""
+        if self.client is None:
+            raise AirlinkConnectionClosedError("Unable to send messages without a configured client instance!")
+        self.client.send(message)  # type: ignore
 
+    @property
+    async def messages(self) -> AsyncIterator[AirlinkSMSMessage]:
+        while self.transport and not self.transport.is_closing():
+            message = await self._receive_queue.get()
+            yield message
+            self._receive_queue.task_done()
+
+
+@asynccontextmanager
 async def create_message_handler(
-    remote_addr: str,
-    remote_port: int,
-    local_bind_addr: str,
-    local_bind_port: int,
-    on_message_received: Callable[[AirlinkSMSMessage, AirlinkSMSUDPClientProtocol], Coroutine[None, None, bool]],
-) -> asyncio.Future[bool]:
+    remote_addr: str, remote_port: int, local_bind_addr: str, local_bind_port: int
+) -> AsyncIterator[AirlinkSMSUDPServerProtocol]:
     """
     Create a UDP server as well as client to communicate with an Airlink device,
     which is capable of receiving messages as well as sending replies.
@@ -216,7 +210,6 @@ async def create_message_handler(
         local_bind_port,
     )
     loop = asyncio.get_running_loop()
-    server_done: asyncio.Future[bool] = asyncio.Future(loop=loop)
 
     # Create a UDP client for egress messages
     client_transport, client_protocol = await loop.create_datagram_endpoint(
@@ -226,9 +219,9 @@ async def create_message_handler(
     # Create the server, providing a handle to the client protocol
     # such that we are able to send replies.
     server_transport, server_protocol = await loop.create_datagram_endpoint(
-        lambda: AirlinkSMSUDPServerProtocol(
-            reply_client=client_protocol, on_message_received=on_message_received, on_connection_lost=server_done
-        ),
+        lambda: AirlinkSMSUDPServerProtocol(client=client_protocol),
         local_addr=(local_bind_addr, local_bind_port),
     )
-    return server_done
+    yield server_protocol
+    server_transport.close()
+    client_transport.close()
