@@ -38,7 +38,7 @@ aioairlinksms [OPTIONS]
 To connect to a modem at 192.168.43.1 that is listening on port 8000 and replying on port 8001, run:
 
 ```bash
-aioairlinksms --remote-addr 192.168.43.1 --remote-port 8000 --local-bind-port 8001 --verbose
+airlinksms --remote-addr 192.168.43.1 --remote-port 8000 --local-bind-port 8001 --verbose
 ```
 
 ## Exceptions
