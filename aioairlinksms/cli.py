@@ -1,7 +1,10 @@
-import asyncclick as click
 import logging
 
-from aioairlinksms.udp import create_message_handler, AirlinkSMSMessage, AirlinkSMSUDPClientProtocol
+import asyncclick as click
+
+from aioairlinksms.udp import (AirlinkSMSMessage, AirlinkSMSUDPClientProtocol,
+                               create_message_handler)
+
 
 @click.command()
 @click.option("-h", "--remote-addr", required=True, help="Remote address of the device to send messages to.")
@@ -39,6 +42,7 @@ async def main(remote_addr, remote_port, local_bind_addr, local_bind_port, verbo
     logging.info("Started Airlink SMS listener...")
     await server_done
     logging.warning("Airlink SMS listener shut down.")
+
 
 if __name__ == "__main__":
     main(_anyio_backend="asyncio")
