@@ -169,7 +169,7 @@ class AirlinkSMSUDPServerProtocol(AirlinkSMSUDPClientProtocol):
         self.reply_client = reply_client
         self.on_message_received = on_message_received
         self.on_connection_lost = on_connection_lost
-        self._pending_replies = set()
+        self._pending_replies: set[asyncio.Task] = set()
 
     def connection_made(self, transport: asyncio.DatagramTransport):
         self.transport = transport
@@ -187,6 +187,9 @@ class AirlinkSMSUDPServerProtocol(AirlinkSMSUDPClientProtocol):
 
     def connection_lost(self, exc: Optional[Exception]):
         logger.info("Connection closed")
+        for reply_task in self._pending_replies:
+            reply_task.cancel()
+        self._pending_replies.clear()
         if self.on_connection_lost is not None:
             self.on_connection_lost.set_result(True)
         super().connection_lost(exc)
